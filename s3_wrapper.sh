@@ -67,6 +67,7 @@ run_s3_container() {
     echo "DEBUG: Bucket=${BUCKET_NAME}"
     echo "DEBUG: Access Key=${access_key:0:5}..."
     echo "DEBUG: Args=${args[*]}"
+    echo "DEBUG: Full command: s3 sync ${dry_run_flag} ${args[*]} --endpoint-url ${S3_ENDPOINT_URL} --no-verify-ssl"
 
     # Execute Podman
     podman run --rm \
