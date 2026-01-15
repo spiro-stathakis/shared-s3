@@ -86,7 +86,7 @@ ACL_FILE="./temp-acl.json"
 echo "$NEW_ACL" > "$ACL_FILE"
 
 echo "Applying new ACL..."
-podman run --rm \
+ACL_RESULT=$(podman run --rm \
     -v "$(pwd):/aws:z" \
     -w /aws \
     -e AWS_ACCESS_KEY_ID="${WRITE_ACCESS_KEY}" \
@@ -97,12 +97,22 @@ podman run --rm \
     --bucket "${BUCKET}" \
     --access-control-policy "file://temp-acl.json" \
     --endpoint-url "${S3_ENDPOINT_URL}" \
-    --no-verify-ssl 2>/dev/null
+    --no-verify-ssl 2>&1)
+
+ACL_EXIT_CODE=$?
 
 rm "$ACL_FILE"
 
-echo ""
-echo "✅ ACL applied successfully!"
+if [[ $ACL_EXIT_CODE -eq 0 ]]; then
+    echo ""
+    echo "✅ ACL applied successfully!"
+else
+    echo ""
+    echo "❌ ACL application failed!"
+    echo "Error output:"
+    echo "$ACL_RESULT"
+    exit 1
+fi
 echo ""
 echo "Note: ACLs grant READ permission at the bucket level."
 echo "This allows listing and reading objects, which should work for s3 sync."
