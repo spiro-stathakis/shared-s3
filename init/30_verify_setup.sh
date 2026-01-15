@@ -6,6 +6,7 @@ NAMESPACE="shared-data"
 IMAGE="quay.io/spidee/aws-cli:latest-amd64"
 AWS_DEFAULT_REGION="us-east-1"
 READONLY_ACCOUNT="readonly-user"
+READONLY_SECRET="noobaa-account-readonly-user"
 
 echo "=========================================="
 echo "VERIFYING NOOBAA SETUP"
@@ -35,7 +36,7 @@ else
 fi
 
 # Check if secret exists
-if oc get secret "${READONLY_ACCOUNT}" -n openshift-storage &>/dev/null; then
+if oc get secret "${READONLY_SECRET}" -n openshift-storage &>/dev/null; then
     echo "✅ Account secret exists"
 else
     echo "❌ Account secret not found (may still be provisioning)"
@@ -86,8 +87,8 @@ echo ""
 # 4. Test readonly-user permissions with simple list
 echo "4. Testing readonly-user permissions (s3 ls)..."
 # Get readonly credentials
-READ_ACCESS_KEY=$(oc get secret "${READONLY_ACCOUNT}" -n openshift-storage -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
-READ_SECRET_KEY=$(oc get secret "${READONLY_ACCOUNT}" -n openshift-storage -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+READ_ACCESS_KEY=$(oc get secret "${READONLY_SECRET}" -n openshift-storage -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+READ_SECRET_KEY=$(oc get secret "${READONLY_SECRET}" -n openshift-storage -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
 
 if podman run --rm \
     -e AWS_ACCESS_KEY_ID="${READ_ACCESS_KEY}" \

@@ -58,7 +58,7 @@ sleep 5
 RETRIES=30
 COUNT=0
 while [[ $COUNT -lt $RETRIES ]]; do
-    if oc get secret "${READONLY_ACCOUNT}" -n openshift-storage &>/dev/null; then
+    if oc get secret "${READONLY_SECRET}" -n openshift-storage &>/dev/null; then
         echo "✅ Account secret created!"
         break
     fi
@@ -75,10 +75,10 @@ fi
 echo ""
 echo "Account details:"
 echo "----------------------------------------"
-ACCESS_KEY=$(oc get secret "${READONLY_ACCOUNT}" -n openshift-storage -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+ACCESS_KEY=$(oc get secret "${READONLY_SECRET}" -n openshift-storage -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
 echo "Account Name:  ${READONLY_ACCOUNT}"
 echo "Access Key:    ${ACCESS_KEY}"
-echo "Secret:        ${READONLY_ACCOUNT} (in openshift-storage namespace)"
+echo "Secret:        ${READONLY_SECRET} (in openshift-storage namespace)"
 echo "Permissions:   Read-only (allow_bucket_create: false)"
 
 echo ""
