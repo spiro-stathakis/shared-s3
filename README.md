@@ -1,161 +1,218 @@
-# Shared S3 Bucket with Read-Only Access for ODF
+# Shared S3 Access Scripts
 
-This project provides scripts to create and manage a shared S3 bucket on OpenShift Data Foundation (ODF) with separate read-only and read-write credentials. This is useful when you need to share data with external clients who should only have read access, while maintaining full write access for data updates.
+Scripts for accessing Ceph/RGW S3 storage via Rook OBC (ObjectBucketClaim).
 
-## Architecture
-
-- **Write credentials**: Full access to create, update, and delete objects in the bucket (from OBC secret)
-- **Read credentials**: Read-only access for consuming clients (via Ceph `readonly-user`)
-
-## Prerequisites
-
-- OpenShift cluster with ODF (OpenShift Data Foundation) installed
-- `oc` CLI logged in with cluster-admin privileges
-- `podman` installed locally
-- `jq` installed locally
-
-## Initial Setup
-
-Run these steps in order to create the shared bucket and configure read-only access.
-
-### 1. Create the Namespace
+## Quick Start
 
 ```bash
-oc apply -f init/namespace.yaml
+# Read from S3 (sync from bucket to local)
+./s3_wrapper.sh read --write s3://folder/ ./local-folder/
+
+# Write to S3 (sync from local to bucket)
+./s3_wrapper.sh write ./local-folder/ s3://folder/
+
+# List bucket contents
+./s3_list.sh --write
+
+# Delete objects
+./s3_delete.sh s3://folder/file.txt
 ```
 
-### 2. Create the Object Bucket Claim
+## ⚠️ Important: Read-Only User Limitation
 
-This creates the S3 bucket and generates write credentials:
+**The readonly-user does NOT work with OBC-created buckets due to a Rook/Ceph architecture limitation.**
+
+### Why?
+
+- OBC (ObjectBucketClaim) creates users in a separate authentication realm
+- Users created with `radosgw-admin` (like readonly-user) cannot access OBC buckets
+- Ceph RGW returns `InvalidAccessKeyId` (403) when readonly-user tries to access the bucket
+- Bucket policies and ACLs cannot bridge this gap between the two user management systems
+
+### Workaround
+
+Use the `--write` flag with read operations to force use of OBC credentials:
 
 ```bash
-oc apply -f init/obc.yaml
+# This uses WRITE credentials but only performs read operations
+./s3_wrapper.sh read --write s3://folder/ ./local-folder/
 ```
 
-Wait for the OBC to be bound:
+**Note:** The `--write` flag simply selects which credentials to use - it doesn't grant additional permissions to the operation itself. `s3 sync` from S3 to local is inherently a read-only operation regardless of credentials used.
 
+## Scripts
+
+### s3_wrapper.sh
+
+Main script for syncing files between S3 and local filesystem.
+
+**Usage:**
 ```bash
-oc get obc -n shared-data
+./s3_wrapper.sh [command] [--write] [--dryrun] [source] [destination]
 ```
 
-### 3. Create the Read-Only User
+**Commands:**
+- `read` - Sync FROM S3 TO local (download)
+- `write` - Sync FROM local TO S3 (upload)
 
-Create a read-only user in Ceph RGW:
+**Flags:**
+- `--write` - Force use of WRITE credentials (required for read operations due to readonly-user limitation)
+- `--dryrun` - Preview changes without making them
 
+**Path Format:**
+- S3 paths: `s3://folder/` (bucket name is auto-detected and prepended)
+- Local paths: `./folder/` or absolute paths
+
+**Examples:**
 ```bash
-./init/10_create_readonly_user.sh
+# Download entire bucket
+./s3_wrapper.sh read --write s3:// ./backup/
+
+# Download specific folder
+./s3_wrapper.sh read --write s3://shared-s3/ ./local-data/
+
+# Upload folder
+./s3_wrapper.sh write ./data/ s3://backup/
+
+# Dry run upload
+./s3_wrapper.sh write --dryrun ./data/ s3://backup/
 ```
 
-### 4. Apply the Bucket Policy
+### s3_list.sh
 
-Update `init/policy.json` with your actual bucket name, then apply the policy to grant the read-only user access:
+List bucket contents recursively.
 
+**Usage:**
 ```bash
-cd init
-./20_apply_policy.sh
+./s3_list.sh [--write]
 ```
 
-**Note**: The bucket name in `policy.json` must match the generated bucket name from the OBC. Check it with:
+**Flags:**
+- `--write` - Use WRITE credentials (recommended, READ credentials don't work with OBC buckets)
 
+**Default:** Uses READ credentials (which will fail with OBC buckets)
+
+### s3_delete.sh
+
+Delete objects from S3.
+
+**Usage:**
 ```bash
-oc get cm shared-data-bucket -n shared-data -o jsonpath='{.data.BUCKET_NAME}'
+./s3_delete.sh s3://path/to/file.txt
+./s3_delete.sh s3://folder/  # Delete entire folder recursively
 ```
 
-## Usage
+## Setup (Initial)
 
-### Setting Up Credentials
+The `init/` directory contains setup scripts (for reference/debugging):
 
-Before using the wrapper, source the appropriate environment script:
+1. `10_create_readonly_user.sh` - Creates readonly-user (⚠️ doesn't work with OBC buckets)
+2. `20_apply_policy.sh` - Applies bucket policy (⚠️ doesn't work due to user realm mismatch)
+3. `25_grant_acl_access.sh` - Attempts ACL grant (⚠️ doesn't work due to user realm mismatch)
+4. `30_verify_setup.sh` - Verifies setup and tests access
+5. `debug_user_tenant.sh` - Debug script showing user information and ACLs
 
-```bash
-# For read-only operations
-source set_read_env.sh
+## Technical Details
 
-# For write operations
-source set_write_env.sh
-```
+### Credential Sources
 
-Each script exports:
-- `S3_ENDPOINT_URL` - The RGW endpoint URL
-- `READ_ACCESS_KEY` / `READ_SECRET_KEY` - Read-only credentials
-- `WRITE_ACCESS_KEY` / `WRITE_SECRET_KEY` - Read-write credentials
+**READ credentials** (readonly-user):
+- Created via: `radosgw-admin user create --uid=readonly-user`
+- Source: OpenShift pod execution on rook-ceph-operator
+- **Limitation: Cannot access OBC buckets** (returns InvalidAccessKeyId 403 error)
+- Why it fails: radosgw-admin users and OBC users exist in separate authentication realms
 
-### Using the S3 Wrapper
+**WRITE credentials** (OBC user):
+- Created via: ObjectBucketClaim in `shared-data` namespace
+- Source: Kubernetes secrets (`shared-data-bucket`)
+- User ID format: `obc-shared-data-shared-data-bucket-<uuid>`
+- Works for all operations on the OBC bucket
 
-The `s3_wrapper.sh` script provides a simple interface for syncing data to/from the bucket.
+### Error: "argument of type 'NoneType' is not iterable"
 
-**Automatic Bucket Name Injection**: You don't need to know the full bucket name. The wrapper automatically transforms `s3://` paths to include the actual bucket name. For example:
-- `s3://backup/` becomes `s3://<generated-bucket-name>/backup/`
-- `s3://` becomes `s3://<generated-bucket-name>/`
+This cryptic error occurs when:
 
-```bash
-# Sync local data TO a folder in the bucket (uses write credentials)
-./s3_wrapper.sh write ./local-data/ s3://backup/
+1. readonly-user credentials are used with an OBC bucket
+2. Ceph RGW returns `InvalidAccessKeyId` (403) with an **empty error message**
+3. AWS CLI's error handler (`s3errormsg.py`) tries to parse the empty message
+4. Python crashes when checking `if substring in None`
 
-# Sync current directory to the bucket root
-./s3_wrapper.sh write . s3://
+The root cause is authentication failure, not a sync/permission issue.
 
-# Sync FROM the bucket to local (uses read credentials)
-./s3_wrapper.sh read s3://data/ ./local-copy/
-
-# Dry run (preview changes without executing)
-./s3_wrapper.sh read --dryrun s3:// ./local-copy/
-./s3_wrapper.sh write --dryrun ./local-data/ s3://backup/
-```
-
-## File Structure
+### Directory Structure
 
 ```
-shared-s3/
-├── init/
-│   ├── namespace.yaml          # Namespace definition
-│   ├── obc.yaml                # ObjectBucketClaim for the shared bucket
-│   ├── policy.json             # S3 bucket policy for read-only access
-│   ├── 10_create_readonly_user.sh  # Creates the readonly-user in Ceph
-│   └── 20_apply_policy.sh      # Applies the bucket policy
-├── set_read_env.sh             # Exports READ_* credentials
-├── set_write_env.sh            # Exports WRITE_* credentials
-├── s3_wrapper.sh               # Main wrapper script for S3 operations
-└── README.md
+.
+├── README.md               # This file
+├── s3_wrapper.sh           # Main sync script
+├── s3_list.sh              # List objects
+├── s3_delete.sh            # Delete objects
+├── set_read_env.sh         # Load READ credentials
+├── set_write_env.sh        # Load WRITE credentials (and bucket name)
+├── test_readonly.sh        # Test readonly-user access (for debugging)
+├── init/                   # Setup scripts (mostly non-functional due to OBC limitation)
+│   ├── namespace.yaml
+│   ├── obc.yaml
+│   ├── policy.json
+│   ├── policy-extended.json
+│   ├── policy-test-open.json
+│   ├── 10_create_readonly_user.sh
+│   ├── 20_apply_policy.sh
+│   ├── 25_grant_acl_access.sh
+│   ├── 30_verify_setup.sh
+│   ├── check_user_caps.sh
+│   └── debug_user_tenant.sh
 ```
-
-## Environment Variables
-
-| Variable | Description | Set By |
-|----------|-------------|--------|
-| `S3_ENDPOINT_URL` | RGW endpoint URL | Both env scripts |
-| `READ_ACCESS_KEY` | Read-only access key | `set_read_env.sh` |
-| `READ_SECRET_KEY` | Read-only secret key | `set_read_env.sh` |
-| `WRITE_ACCESS_KEY` | Read-write access key | `set_write_env.sh` |
-| `WRITE_SECRET_KEY` | Read-write secret key | `set_write_env.sh` |
-| `BUCKET_NAME` | Generated bucket name | `set_write_env.sh` |
-
-## Distributing Read-Only Credentials
-
-To share read-only access with clients, provide them with:
-
-1. The S3 endpoint URL
-2. The read-only access key and secret key (from `set_read_env.sh` output)
-3. The bucket name
-
-Clients can then use any S3-compatible tool (aws-cli, s3cmd, boto3, etc.) with these credentials.
 
 ## Troubleshooting
 
-### OBC not binding
-Check the ODF storage cluster is healthy:
-```bash
-oc get storagecluster -n openshift-storage
-```
+### "fatal error: argument of type 'NoneType' is not iterable"
 
-### Read-only user not found
-Verify the user was created:
-```bash
-OPERATOR_POD=$(oc get pod -n openshift-storage -l app=rook-ceph-operator -o jsonpath='{.items[0].metadata.name}')
-oc exec -n openshift-storage $OPERATOR_POD -- radosgw-admin user info --uid="readonly-user" \
-  --conf=/var/lib/rook/openshift-storage/openshift-storage.config \
-  --keyring=/var/lib/rook/openshift-storage/client.admin.keyring
-```
+**Cause:** Using readonly-user credentials with OBC buckets. Ceph returns InvalidAccessKeyId with empty message, AWS CLI crashes parsing it.
 
-### Permission denied with read credentials
-Ensure the bucket policy was applied correctly and the bucket name in `policy.json` matches the actual bucket name.
+**Solution:** Use `--write` flag: `./s3_wrapper.sh read --write s3://folder/ ./local/`
+
+### "InvalidAccessKeyId" (403)
+
+**Cause:** The credentials don't have access to the bucket.
+
+**For readonly-user:** This is expected with OBC buckets - use `--write` flag instead.
+**For WRITE user:** Check that you're logged into OpenShift: `oc login`
+
+### Bucket policy not working
+
+**Cause:** Bucket policies cannot grant access across user management realms (OBC vs radosgw-admin).
+
+**Solution:** Use OBC credentials (WRITE credentials) for all access.
+
+### Why can't I create a truly read-only user?
+
+OBC buckets are owned by OBC-managed users. The readonly-user created via `radosgw-admin` exists in a different authentication system. Ceph RGW does not provide a way to grant cross-realm access via policies or ACLs.
+
+**Alternatives:**
+1. Use WRITE credentials for read operations (current workaround)
+2. Create a second OBC with limited permissions (if Rook supports read-only OBCs)
+3. Use application-level access control instead of S3-level
+
+## Environment Variables
+
+Scripts automatically load these from OpenShift:
+
+- `S3_ENDPOINT_URL` - Ceph RGW endpoint URL
+- `BUCKET_NAME` - OBC bucket name (format: `shared-data-<uuid>`)
+- `READ_ACCESS_KEY` / `READ_SECRET_KEY` - readonly-user credentials (⚠️ won't work)
+- `WRITE_ACCESS_KEY` / `WRITE_SECRET_KEY` - OBC user credentials (✅ use these)
+
+## Requirements
+
+- OpenShift CLI (`oc`) configured and logged in
+- Podman
+- `jq` for JSON parsing
+- Access to `openshift-storage` namespace (for readonly-user operations)
+- Access to `shared-data` namespace (for OBC credentials)
+- Rook-Ceph OBC provisioned
+
+## References
+
+- [Ceph Bucket Policies Documentation](https://docs.ceph.com/en/latest/radosgw/bucketpolicy/)
+- [Rook OBC Documentation](https://rook.io/docs/rook/latest/Storage-Configuration/Object-Storage-RGW/object-bucket-claim/)
