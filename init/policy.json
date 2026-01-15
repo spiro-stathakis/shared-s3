@@ -6,7 +6,10 @@
             "Principal": "*",
             "Action": [
                 "s3:GetObject",
-                "s3:ListBucket"
+                "s3:GetObjectVersion",
+                "s3:ListBucket",
+                "s3:ListBucketVersions",
+                "s3:GetBucketLocation"
             ],
             "Resource": [
                 "arn:aws:s3:::shared-data-a9609b6b-15d9-41a5-83d1-fe4739bb457e",
