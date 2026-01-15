@@ -82,18 +82,25 @@ Each script exports:
 
 ### Using the S3 Wrapper
 
-The `s3_wrapper.sh` script provides a simple interface for syncing data to/from the bucket:
+The `s3_wrapper.sh` script provides a simple interface for syncing data to/from the bucket.
+
+**Automatic Bucket Name Injection**: You don't need to know the full bucket name. The wrapper automatically transforms `s3://` paths to include the actual bucket name. For example:
+- `s3://backup/` becomes `s3://<generated-bucket-name>/backup/`
+- `s3://` becomes `s3://<generated-bucket-name>/`
 
 ```bash
-# Sync local data TO the bucket (uses write credentials)
-./s3_wrapper.sh write ./local-data/ s3://bucket-name/
+# Sync local data TO a folder in the bucket (uses write credentials)
+./s3_wrapper.sh write ./local-data/ s3://backup/
+
+# Sync current directory to the bucket root
+./s3_wrapper.sh write . s3://
 
 # Sync FROM the bucket to local (uses read credentials)
-./s3_wrapper.sh read s3://bucket-name/ ./local-copy/
+./s3_wrapper.sh read s3://data/ ./local-copy/
 
 # Dry run (preview changes without executing)
-./s3_wrapper.sh read --dryrun s3://bucket-name/ ./local-copy/
-./s3_wrapper.sh write --dryrun ./local-data/ s3://bucket-name/
+./s3_wrapper.sh read --dryrun s3:// ./local-copy/
+./s3_wrapper.sh write --dryrun ./local-data/ s3://backup/
 ```
 
 ## File Structure

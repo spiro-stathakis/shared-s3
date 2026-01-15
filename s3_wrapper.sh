@@ -29,8 +29,23 @@ run_s3_container() {
     if [[ "${args[0]}" == "--dryrun" ]]; then
         dry_run_flag="--dryrun"
         # Remove --dryrun from the arguments list so it doesn't break pathing
-        args=("${args[@]:1}") 
+        args=("${args[@]:1}")
     fi
+
+    # Transform s3:// paths to include the actual bucket name
+    # e.g., s3://folder -> s3://bucket-name/folder
+    for i in "${!args[@]}"; do
+        if [[ "${args[$i]}" =~ ^s3://(.*)$ ]]; then
+            local path="${BASH_REMATCH[1]}"
+            args[$i]="s3://${BUCKET_NAME}/${path}"
+        fi
+    done
+
+    # Debug output
+    echo "DEBUG: S3_ENDPOINT_URL=${S3_ENDPOINT_URL}"
+    echo "DEBUG: Bucket=${BUCKET_NAME}"
+    echo "DEBUG: Access Key=${access_key:0:5}..."
+    echo "DEBUG: Args=${args[*]}"
 
     # Execute Podman
     podman run --rm \
@@ -40,8 +55,7 @@ run_s3_container() {
         -e AWS_SECRET_ACCESS_KEY="$secret_key" \
         -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
         "${IMAGE}" \
-        --endpoint-url "${S3_ENDPOINT_URL}" \
-        s3 sync ${dry_run_flag} "${args[@]}"
+        --debug s3 sync ${dry_run_flag} "${args[@]}" --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl
 }
 
 
@@ -56,9 +70,14 @@ Commands:
   read   - Sync from S3 to local (Uses READ_ACCESS_KEY)
   write  - Sync from local to S3 (Uses WRITE_ACCESS_KEY)
 
+Note: s3:// paths are automatically prefixed with the bucket name.
+      e.g., s3://folder becomes s3://${BUCKET_NAME}/folder
+
 Examples:
-  $0 write ./data s3://my-bucket/
-  $0 read --dryrun s3://my-bucket/ ./local-copy/
+  $0 write ./data s3://backup/       # Syncs ./data to s3://\${BUCKET_NAME}/backup/
+  $0 write . s3://                    # Syncs current dir to bucket root
+  $0 read s3://data/ ./local-copy/   # Syncs s3://\${BUCKET_NAME}/data/ to ./local-copy/
+  $0 read --dryrun s3:// ./backup/   # Dry run: bucket root to ./backup/
 EOF
     exit 1
 }
