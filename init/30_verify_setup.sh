@@ -14,21 +14,33 @@ echo ""
 
 # 1. Check if NooBaa readonly account exists
 echo "1. Checking NooBaa readonly account..."
-NOOBAA_POD=$(oc get pod -n openshift-storage -l noobaa-mgmt=noobaa -o jsonpath='{.items[0].metadata.name}')
 
-if [[ -z "$NOOBAA_POD" ]]; then
-    echo "❌ NooBaa pod not found"
+# Find the noobaa-operator pod
+OPERATOR_POD=$(oc get pod -n openshift-storage -l noobaa-operator=deployment -o jsonpath='{.items[0].metadata.name}')
+
+if [[ -z "$OPERATOR_POD" ]]; then
+    echo "❌ NooBaa operator pod not found"
     exit 1
 fi
 
-ACCOUNT_INFO=$(oc exec -n openshift-storage "$NOOBAA_POD" -- noobaa account status "${READONLY_ACCOUNT}" 2>/dev/null || echo "NOT_FOUND")
+# Check if account exists using operator
+ACCOUNT_CHECK=$(oc exec -n openshift-storage "$OPERATOR_POD" -- noobaa-operator account list 2>/dev/null | grep -w "${READONLY_ACCOUNT}" || echo "NOT_FOUND")
 
-if [[ "$ACCOUNT_INFO" == *"NOT_FOUND"* ]]; then
+if [[ "$ACCOUNT_CHECK" == "NOT_FOUND" ]]; then
     echo "❌ NooBaa account '${READONLY_ACCOUNT}' does not exist"
     echo "   Run: cd init && ./10_create_readonly_account.sh"
     exit 1
 else
     echo "✅ NooBaa account '${READONLY_ACCOUNT}' exists"
+fi
+
+# Check if secret exists
+if oc get secret "${READONLY_ACCOUNT}" -n openshift-storage &>/dev/null; then
+    echo "✅ Account secret exists"
+else
+    echo "❌ Account secret not found (may still be provisioning)"
+    echo "   Wait a moment and try again"
+    exit 1
 fi
 
 echo ""
