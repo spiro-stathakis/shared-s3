@@ -6,10 +6,10 @@ Scripts for accessing NooBaa S3 storage via Rook OBC (ObjectBucketClaim) with pr
 
 ```bash
 # Read from S3 (sync from bucket to local)
-./s3_wrapper.sh read s3://folder/ ./local-folder/
+./s3_synch.sh read s3://folder/ ./local-folder/
 
 # Write to S3 (sync from local to bucket)
-./s3_wrapper.sh write ./local-folder/ s3://folder/
+./s3_synch.sh write ./local-folder/ s3://folder/
 
 # List bucket contents
 ./s3_list.sh
@@ -78,13 +78,13 @@ This verifies:
 
 ## Scripts
 
-### s3_wrapper.sh
+### s3_synch.sh
 
 Main script for syncing files between S3 and local filesystem.
 
 **Usage:**
 ```bash
-./s3_wrapper.sh [command] [--dryrun] [source] [destination]
+./s3_synch.sh [command] [--dryrun] [source] [destination]
 ```
 
 **Commands:**
@@ -101,16 +101,16 @@ Main script for syncing files between S3 and local filesystem.
 **Examples:**
 ```bash
 # Download entire bucket
-./s3_wrapper.sh read s3:// ./backup/
+./s3_synch.sh read s3:// ./backup/
 
 # Download specific folder
-./s3_wrapper.sh read s3://shared-s3/ ./local-data/
+./s3_synch.sh read s3://shared-s3/ ./local-data/
 
 # Upload folder
-./s3_wrapper.sh write ./data/ s3://backup/
+./s3_synch.sh write ./data/ s3://backup/
 
 # Dry run upload
-./s3_wrapper.sh write --dryrun ./data/ s3://backup/
+./s3_synch.sh write --dryrun ./data/ s3://backup/
 ```
 
 ### s3_list.sh
@@ -175,7 +175,7 @@ https://s3-openshift-storage.apps.your-cluster.domain
 ```
 .
 ├── README.md               # This file
-├── s3_wrapper.sh           # Main sync script
+├── s3_synch.sh           # Main sync script
 ├── s3_list.sh              # List objects
 ├── s3_delete.sh            # Delete objects
 ├── set_read_env.sh         # Load READ credentials
