@@ -159,8 +159,8 @@ NooBaa accounts use the format: `account-name@noobaa.io`
 In bucket policies, the Principal ARN format is:
 ```json
 "Principal": {
-  "AWS": ["arn:aws:iam::noobaa:user/readonly-user@noobaa.io"]
-}
+               "AWS": "readonly-user"
+            },
 ```
 
 ### S3 Endpoint
