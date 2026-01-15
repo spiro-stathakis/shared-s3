@@ -3,6 +3,7 @@
 set -e
 
 READONLY_ACCOUNT="readonly-user"
+READONLY_SECRET="noobaa-account-readonly-user"
 
 echo "=========================================="
 echo "CREATING NOOBAA READ-ONLY ACCOUNT"
