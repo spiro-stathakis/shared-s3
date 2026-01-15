@@ -65,7 +65,7 @@ POLICY_OUTPUT=$(podman run --rm \
     s3api get-bucket-policy \
     --bucket "${BUCKET}" \
     --endpoint-url "${S3_ENDPOINT_URL}" \
-    --no-verify-ssl 2>&1 || echo "NO_POLICY")
+    --no-verify-ssl 2>/dev/null || echo "NO_POLICY")
 
 if [[ "$POLICY_OUTPUT" == *"NO_POLICY"* ]] || [[ "$POLICY_OUTPUT" == *"NoSuchBucketPolicy"* ]]; then
     echo "❌ No bucket policy found"
@@ -75,7 +75,7 @@ else
     echo "✅ Bucket policy exists"
     echo ""
     echo "   Policy contents:"
-    echo "$POLICY_OUTPUT" | jq '.Policy | fromjson' 2>/dev/null || echo "$POLICY_OUTPUT"
+    echo "$POLICY_OUTPUT" | jq -r '.Policy' | jq '.'
 fi
 
 echo ""
@@ -93,11 +93,12 @@ if podman run --rm \
     "${IMAGE}" \
     s3 ls "s3://${BUCKET}/" \
     --endpoint-url "${S3_ENDPOINT_URL}" \
-    --no-verify-ssl > /dev/null 2>&1; then
+    --no-verify-ssl 2>/dev/null > /dev/null; then
     echo "✅ readonly-user can list bucket (s3:ListBucket works)"
 else
     echo "❌ readonly-user CANNOT list bucket"
     echo "   Policy may not be correctly applied"
+    echo "   Run: cd init && ./20_apply_policy.sh"
     exit 1
 fi
 
@@ -106,7 +107,7 @@ echo ""
 # 5. Test readonly-user with sync (this is where it fails)
 echo "5. Testing readonly-user with s3 sync (dry-run)..."
 mkdir -p /tmp/s3-test
-if podman run --rm \
+SYNC_OUTPUT=$(podman run --rm \
     -v "/tmp/s3-test:/aws:z" \
     -w /aws \
     -e AWS_ACCESS_KEY_ID="${READ_ACCESS_KEY}" \
@@ -115,18 +116,23 @@ if podman run --rm \
     "${IMAGE}" \
     s3 sync "s3://${BUCKET}/" /aws/test/ --dryrun \
     --endpoint-url "${S3_ENDPOINT_URL}" \
-    --no-verify-ssl 2>&1; then
-    echo "✅ readonly-user can use s3 sync"
-else
+    --no-verify-ssl 2>&1)
+
+if echo "$SYNC_OUTPUT" | grep -q "fatal error\|NoneType"; then
     echo "❌ readonly-user CANNOT use s3 sync"
+    echo "   Error: $SYNC_OUTPUT"
     echo ""
     echo "DIAGNOSIS:"
-    echo "The readonly-user has s3:GetObject and s3:ListBucket permissions,"
-    echo "but 's3 sync' may require additional permissions that aren't granted."
+    echo "The readonly-user has the required permissions,"
+    echo "but 's3 sync' may have compatibility issues with Ceph/RGW."
     echo ""
     echo "WORKAROUND:"
     echo "Use the --write flag with read operations:"
     echo "  ./s3_wrapper.sh read --write s3://folder/ ./local/"
+elif [[ $? -eq 0 ]]; then
+    echo "✅ readonly-user can use s3 sync"
+else
+    echo "⚠️  readonly-user s3 sync test inconclusive"
 fi
 
 echo ""
