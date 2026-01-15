@@ -45,7 +45,7 @@ podman run --rm \
     --bucket "${BUCKET}" \
     --policy file://policy-applied.json \
     --endpoint-url "${S3_ENDPOINT_URL}" \
-    --no-verify-ssl
+    --no-verify-ssl 2>/dev/null
 
 rm "${POLICY_FILE}"
 

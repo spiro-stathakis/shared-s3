@@ -60,6 +60,6 @@ podman run --rm \
     -e AWS_SECRET_ACCESS_KEY="${WRITE_SECRET_KEY}" \
     -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
     "${IMAGE}" \
-    s3 rm "${DELETE_PATH}" --recursive --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl
+    s3 rm "${DELETE_PATH}" --recursive --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl 2>/dev/null
 
 echo "Done."

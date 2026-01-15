@@ -73,7 +73,7 @@ run_s3_container() {
         -e AWS_SECRET_ACCESS_KEY="$secret_key" \
         -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
         "${IMAGE}" \
-        s3 sync ${dry_run_flag} "${args[@]}" --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl 2>&1
+        s3 sync ${dry_run_flag} "${args[@]}" --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl 2>/dev/null
 }
 
 
