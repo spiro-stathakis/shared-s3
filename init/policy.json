@@ -4,9 +4,9 @@
         {
             "Sid": "ReadOnlyAccess",
             "Effect": "Allow",
-            "Principal": [
-                "readonly-user@noobaa.io"
-            ],
+            "Principal": {
+               "AWS": "readonly-user"
+            },
             "Action": [
                 "s3:GetObject",
                 "s3:ListBucket"
