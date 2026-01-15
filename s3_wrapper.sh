@@ -7,6 +7,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/set_read_env.sh"
 source "${SCRIPT_DIR}/set_write_env.sh"
 
+# Validate that required variables are set
+if [[ -z "${BUCKET_NAME}" ]]; then
+    echo "ERROR: BUCKET_NAME is not set. Check that set_write_env.sh ran successfully."
+    echo "       Make sure you are logged into OpenShift with 'oc login'."
+    exit 1
+fi
+
+if [[ -z "${S3_ENDPOINT_URL}" ]]; then
+    echo "ERROR: S3_ENDPOINT_URL is not set. Check that the env scripts ran successfully."
+    exit 1
+fi
+
 run_s3_container() {
     local mode=$1
     shift
@@ -55,7 +67,7 @@ run_s3_container() {
         -e AWS_SECRET_ACCESS_KEY="$secret_key" \
         -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
         "${IMAGE}" \
-        --debug s3 sync ${dry_run_flag} "${args[@]}" --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl
+        s3 sync ${dry_run_flag} "${args[@]}" --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl
 }
 
 
