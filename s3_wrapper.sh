@@ -72,15 +72,17 @@ run_s3_container() {
     # Execute Podman
     # Note: Using :z (lowercase) for better compatibility with SELinux
     # The container needs write access when doing read operations (S3 -> local)
+    # Set PYTHONWARNINGS to ignore SSL warnings
     podman run --rm \
         -v "$(pwd):/aws:z" \
         -w /aws \
         -e AWS_ACCESS_KEY_ID="$access_key" \
         -e AWS_SECRET_ACCESS_KEY="$secret_key" \
         -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
-        -e AWS_CA_BUNDLE="" \
+        -e PYTHONWARNINGS="ignore:Unverified HTTPS request" \
+        -e AWS_CONFIG_FILE="/dev/null" \
         "${IMAGE}" \
-        s3 sync ${dry_run_flag} "${args[@]}" --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl
+        s3 sync ${dry_run_flag} "${args[@]}" --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl 2>&1
 }
 
 
