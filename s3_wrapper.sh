@@ -36,7 +36,15 @@ run_s3_container() {
     local secret_key=""
     local dry_run_flag=""
 
-    if [[ "$mode" == "read" ]]; then
+    # Check for --write flag to force using write credentials
+    if [[ "${args[0]}" == "--write" ]]; then
+        # Remove --write from the arguments list
+        args=("${args[@]:1}")
+        # Force using write credentials
+        access_key="${WRITE_ACCESS_KEY}"
+        secret_key="${WRITE_SECRET_KEY}"
+        echo "🔐 Using READ-WRITE credentials (forced by --write flag)..."
+    elif [[ "$mode" == "read" ]]; then
         access_key="${READ_ACCESS_KEY}"
         secret_key="${READ_SECRET_KEY}"
         echo "🔓 Using READ-ONLY credentials..."
@@ -72,15 +80,12 @@ run_s3_container() {
     # Execute Podman
     # Note: Using :z (lowercase) for better compatibility with SELinux
     # The container needs write access when doing read operations (S3 -> local)
-    # Set PYTHONWARNINGS to ignore SSL warnings
     podman run --rm \
         -v "$(pwd):/aws:z" \
         -w /aws \
         -e AWS_ACCESS_KEY_ID="$access_key" \
         -e AWS_SECRET_ACCESS_KEY="$secret_key" \
         -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
-        -e PYTHONWARNINGS="ignore:Unverified HTTPS request" \
-        -e AWS_CONFIG_FILE="/dev/null" \
         "${IMAGE}" \
         s3 sync ${dry_run_flag} "${args[@]}" --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl 2>&1
 }
@@ -91,20 +96,25 @@ usage() {
 S3 WRAPPER - ODF/CEPH UTILITY
 
 Usage:
-  $0 [command] [--dryrun] [source] [destination]
+  $0 [command] [--write] [--dryrun] [source] [destination]
 
 Commands:
-  read   - Sync from S3 to local (Uses READ_ACCESS_KEY)
+  read   - Sync from S3 to local (Uses READ_ACCESS_KEY by default)
   write  - Sync from local to S3 (Uses WRITE_ACCESS_KEY)
+
+Flags:
+  --write   - Force use of WRITE credentials (useful for read operations with read-only credential issues)
+  --dryrun  - Perform a dry run without making changes
 
 Note: s3:// paths are automatically prefixed with the bucket name.
       e.g., s3://folder becomes s3://${BUCKET_NAME}/folder
 
 Examples:
-  $0 write ./data s3://backup/       # Syncs ./data to s3://\${BUCKET_NAME}/backup/
-  $0 write . s3://                    # Syncs current dir to bucket root
-  $0 read s3://data/ ./local-copy/   # Syncs s3://\${BUCKET_NAME}/data/ to ./local-copy/
-  $0 read --dryrun s3:// ./backup/   # Dry run: bucket root to ./backup/
+  $0 write ./data s3://backup/           # Syncs ./data to s3://\${BUCKET_NAME}/backup/
+  $0 write . s3://                        # Syncs current dir to bucket root
+  $0 read s3://data/ ./local-copy/       # Syncs s3://\${BUCKET_NAME}/data/ to ./local-copy/
+  $0 read --write s3://data/ ./local/    # Syncs using WRITE credentials
+  $0 read --dryrun s3:// ./backup/       # Dry run: bucket root to ./backup/
 EOF
     exit 1
 }
