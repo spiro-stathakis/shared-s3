@@ -12,8 +12,8 @@
                 "s3:ListBucket"
             ],
             "Resource": [
-                "arn:aws:s3:::shared-data-bucket",
-                "arn:aws:s3:::shared-data-bucket/*"
+                "arn:aws:s3:::shared-data-a9609b6b-15d9-41a5-83d1-fe4739bb457e",
+                "arn:aws:s3:::shared-data-a9609b6b-15d9-41a5-83d1-fe4739bb457e/*"
             ]
         }
     ]
