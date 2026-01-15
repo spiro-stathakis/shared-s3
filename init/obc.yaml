@@ -1,0 +1,8 @@
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: shared-data-bucket
+  namespace: shared-data
+spec:
+  generateBucketName: shared-data
+  storageClassName: ocs-storagecluster-ceph-rgw

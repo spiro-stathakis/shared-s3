@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+
+export IMAGE="quay.io/spidee/aws-cli:latest-amd64"
+AWS_DEFAULT_REGION="us-east-1"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "${SCRIPT_DIR}/set_read_env.sh"
+source "${SCRIPT_DIR}/set_write_env.sh"
+
+run_s3_container() {
+    local mode=$1
+    shift
+    local args=("$@")
+    local access_key=""
+    local secret_key=""
+    local dry_run_flag=""
+
+    if [[ "$mode" == "read" ]]; then
+        access_key="${READ_ACCESS_KEY}"
+        secret_key="${READ_SECRET_KEY}"
+        echo "🔓 Using READ-ONLY credentials..."
+    else
+        access_key="${WRITE_ACCESS_KEY}"
+        secret_key="${WRITE_SECRET_KEY}"
+        echo "🔐 Using READ-WRITE credentials..."
+    fi
+
+    # Check for Manual Dry Run
+    if [[ "${args[0]}" == "--dryrun" ]]; then
+        dry_run_flag="--dryrun"
+        # Remove --dryrun from the arguments list so it doesn't break pathing
+        args=("${args[@]:1}") 
+    fi
+
+    # Execute Podman
+    podman run --rm \
+        -v "$(pwd):/aws:Z" \
+        -w /aws \
+        -e AWS_ACCESS_KEY_ID="$access_key" \
+        -e AWS_SECRET_ACCESS_KEY="$secret_key" \
+        -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
+        "${IMAGE}" \
+        --endpoint-url "${S3_ENDPOINT_URL}" \
+        s3 sync ${dry_run_flag} "${args[@]}"
+}
+
+
+usage() {
+    cat << EOF
+S3 WRAPPER - ODF/CEPH UTILITY
+
+Usage:
+  $0 [command] [--dryrun] [source] [destination]
+
+Commands:
+  read   - Sync from S3 to local (Uses READ_ACCESS_KEY)
+  write  - Sync from local to S3 (Uses WRITE_ACCESS_KEY)
+
+Examples:
+  $0 write ./data s3://my-bucket/
+  $0 read --dryrun s3://my-bucket/ ./local-copy/
+EOF
+    exit 1
+}
+
+if [[ $# -lt 2 ]]; then usage; fi
+
+COMMAND=$1
+shift 
+
+case "$COMMAND" in
+    read|write)
+        run_s3_container "$COMMAND" "$@"
+        ;;
+    *)
+        usage
+        ;;
+esac
