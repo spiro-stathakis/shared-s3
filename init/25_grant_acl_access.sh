@@ -81,24 +81,25 @@ EOF
 echo "$NEW_ACL" | jq '.'
 echo ""
 
-# Write ACL to temp file and apply
-TEMP_ACL_FILE=$(mktemp)
-echo "$NEW_ACL" > "$TEMP_ACL_FILE"
+# Write ACL to temp file in current directory and apply
+ACL_FILE="./temp-acl.json"
+echo "$NEW_ACL" > "$ACL_FILE"
 
 echo "Applying new ACL..."
 podman run --rm \
-    -v "$(dirname $TEMP_ACL_FILE):/tmp:z" \
+    -v "$(pwd):/aws:z" \
+    -w /aws \
     -e AWS_ACCESS_KEY_ID="${WRITE_ACCESS_KEY}" \
     -e AWS_SECRET_ACCESS_KEY="${WRITE_SECRET_KEY}" \
     -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
     "${IMAGE}" \
     s3api put-bucket-acl \
     --bucket "${BUCKET}" \
-    --access-control-policy "file:///tmp/$(basename $TEMP_ACL_FILE)" \
+    --access-control-policy "file://temp-acl.json" \
     --endpoint-url "${S3_ENDPOINT_URL}" \
-    --no-verify-ssl
+    --no-verify-ssl 2>/dev/null
 
-rm "$TEMP_ACL_FILE"
+rm "$ACL_FILE"
 
 echo ""
 echo "✅ ACL applied successfully!"
