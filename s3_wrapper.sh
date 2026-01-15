@@ -2,7 +2,16 @@
 
 export IMAGE="quay.io/spidee/aws-cli:latest-amd64"
 AWS_DEFAULT_REGION="us-east-1"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Resolve the actual script location (follows symlinks)
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    # If SOURCE is relative, resolve it relative to the symlink's directory
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
 source "${SCRIPT_DIR}/set_read_env.sh"
 source "${SCRIPT_DIR}/set_write_env.sh"
