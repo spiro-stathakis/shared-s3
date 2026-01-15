@@ -70,15 +70,17 @@ run_s3_container() {
     echo "DEBUG: Full command: s3 sync ${dry_run_flag} ${args[*]} --endpoint-url ${S3_ENDPOINT_URL} --no-verify-ssl"
 
     # Execute Podman
+    # Note: Using :z (lowercase) for better compatibility with SELinux
+    # The container needs write access when doing read operations (S3 -> local)
     podman run --rm \
-        -v "$(pwd):/aws:Z" \
+        -v "$(pwd):/aws:z" \
         -w /aws \
         -e AWS_ACCESS_KEY_ID="$access_key" \
         -e AWS_SECRET_ACCESS_KEY="$secret_key" \
         -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
         -e AWS_CA_BUNDLE="" \
         "${IMAGE}" \
-        s3 sync ${dry_run_flag} "${args[@]}" --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl --recursive
+        s3 sync ${dry_run_flag} "${args[@]}" --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl
 }
 
 
