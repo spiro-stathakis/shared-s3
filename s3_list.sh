@@ -28,22 +28,12 @@ if [[ -z "${S3_ENDPOINT_URL}" ]]; then
 fi
 
 echo "Listing contents of bucket: ${BUCKET_NAME}"
-
-# Use --write flag to test with write credentials
-if [[ "$1" == "--write" ]]; then
-    echo "Using WRITE credentials (for testing)..."
-    ACCESS_KEY="${WRITE_ACCESS_KEY}"
-    SECRET_KEY="${WRITE_SECRET_KEY}"
-else
-    echo "Using READ-ONLY credentials..."
-    ACCESS_KEY="${READ_ACCESS_KEY}"
-    SECRET_KEY="${READ_SECRET_KEY}"
-fi
+echo "Using READ-ONLY credentials..."
 echo "----------------------------------------"
 
 podman run --rm \
-    -e AWS_ACCESS_KEY_ID="${ACCESS_KEY}" \
-    -e AWS_SECRET_ACCESS_KEY="${SECRET_KEY}" \
+    -e AWS_ACCESS_KEY_ID="${READ_ACCESS_KEY}" \
+    -e AWS_SECRET_ACCESS_KEY="${READ_SECRET_KEY}" \
     -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
     "${IMAGE}" \
     s3 ls "s3://${BUCKET_NAME}/" --recursive --endpoint-url "${S3_ENDPOINT_URL}" --no-verify-ssl

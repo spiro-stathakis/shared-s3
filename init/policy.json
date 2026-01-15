@@ -5,7 +5,7 @@
             "Effect": "Allow",
             "Principal": {
                 "AWS": [
-                    "arn:aws:iam:::user/readonly-user"
+                    "arn:aws:iam::noobaa:user/readonly-user@noobaa.io"
                 ]
             },
             "Action": [
@@ -16,8 +16,8 @@
                 "s3:GetBucketLocation"
             ],
             "Resource": [
-                "arn:aws:s3:::shared-data-a9609b6b-15d9-41a5-83d1-fe4739bb457e",
-                "arn:aws:s3:::shared-data-a9609b6b-15d9-41a5-83d1-fe4739bb457e/*"
+                "arn:aws:s3:::BUCKET_NAME_PLACEHOLDER",
+                "arn:aws:s3:::BUCKET_NAME_PLACEHOLDER/*"
             ]
         }
     ]

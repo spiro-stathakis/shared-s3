@@ -8,7 +8,6 @@ SOURCE="${BASH_SOURCE[0]}"
 while [ -L "$SOURCE" ]; do
     DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
     SOURCE="$(readlink "$SOURCE")"
-    # If SOURCE is relative, resolve it relative to the symlink's directory
     [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
@@ -36,15 +35,8 @@ run_s3_container() {
     local secret_key=""
     local dry_run_flag=""
 
-    # Check for --write flag to force using write credentials
-    if [[ "${args[0]}" == "--write" ]]; then
-        # Remove --write from the arguments list
-        args=("${args[@]:1}")
-        # Force using write credentials
-        access_key="${WRITE_ACCESS_KEY}"
-        secret_key="${WRITE_SECRET_KEY}"
-        echo "🔐 Using READ-WRITE credentials (forced by --write flag)..."
-    elif [[ "$mode" == "read" ]]; then
+    # Select credentials based on operation mode
+    if [[ "$mode" == "read" ]]; then
         access_key="${READ_ACCESS_KEY}"
         secret_key="${READ_SECRET_KEY}"
         echo "🔓 Using READ-ONLY credentials..."
@@ -54,15 +46,13 @@ run_s3_container() {
         echo "🔐 Using READ-WRITE credentials..."
     fi
 
-    # Check for Manual Dry Run
+    # Check for dry run flag
     if [[ "${args[0]}" == "--dryrun" ]]; then
         dry_run_flag="--dryrun"
-        # Remove --dryrun from the arguments list so it doesn't break pathing
         args=("${args[@]:1}")
     fi
 
     # Transform s3:// paths to include the actual bucket name
-    # e.g., s3://folder -> s3://bucket-name/folder
     for i in "${!args[@]}"; do
         if [[ "${args[$i]}" =~ ^s3://(.*)$ ]]; then
             local path="${BASH_REMATCH[1]}"
@@ -71,15 +61,11 @@ run_s3_container() {
     done
 
     # Debug output
-    echo "DEBUG: S3_ENDPOINT_URL=${S3_ENDPOINT_URL}"
-    echo "DEBUG: Bucket=${BUCKET_NAME}"
-    echo "DEBUG: Access Key=${access_key:0:5}..."
-    echo "DEBUG: Args=${args[*]}"
-    echo "DEBUG: Full command: s3 sync ${dry_run_flag} ${args[*]} --endpoint-url ${S3_ENDPOINT_URL} --no-verify-ssl"
+    echo "Endpoint: ${S3_ENDPOINT_URL}"
+    echo "Bucket:   ${BUCKET_NAME}"
+    echo "Command:  s3 sync ${dry_run_flag} ${args[*]}"
 
     # Execute Podman
-    # Note: Using :z (lowercase) for better compatibility with SELinux
-    # The container needs write access when doing read operations (S3 -> local)
     podman run --rm \
         -v "$(pwd):/aws:z" \
         -w /aws \
@@ -93,28 +79,32 @@ run_s3_container() {
 
 usage() {
     cat << EOF
-S3 WRAPPER - ODF/CEPH UTILITY
+S3 WRAPPER - NOOBAA S3 UTILITY
 
 Usage:
-  $0 [command] [--write] [--dryrun] [source] [destination]
+  $0 [command] [--dryrun] [source] [destination]
 
 Commands:
-  read   - Sync from S3 to local (Uses READ_ACCESS_KEY by default)
-  write  - Sync from local to S3 (Uses WRITE_ACCESS_KEY)
+  read   - Sync from S3 to local (uses READ-ONLY credentials)
+  write  - Sync from local to S3 (uses READ-WRITE credentials)
 
 Flags:
-  --write   - Force use of WRITE credentials (useful for read operations with read-only credential issues)
   --dryrun  - Perform a dry run without making changes
 
-Note: s3:// paths are automatically prefixed with the bucket name.
-      e.g., s3://folder becomes s3://${BUCKET_NAME}/folder
+Path Format:
+  S3 paths are automatically prefixed with the bucket name.
+  e.g., s3://folder becomes s3://${BUCKET_NAME}/folder
 
 Examples:
-  $0 write ./data s3://backup/           # Syncs ./data to s3://\${BUCKET_NAME}/backup/
-  $0 write . s3://                        # Syncs current dir to bucket root
-  $0 read s3://data/ ./local-copy/       # Syncs s3://\${BUCKET_NAME}/data/ to ./local-copy/
-  $0 read --write s3://data/ ./local/    # Syncs using WRITE credentials
-  $0 read --dryrun s3:// ./backup/       # Dry run: bucket root to ./backup/
+  $0 read s3://data/ ./local-copy/       # Download: S3 to local
+  $0 read --dryrun s3:// ./backup/       # Dry run: entire bucket to local
+  $0 write ./data s3://backup/           # Upload: local to S3
+  $0 write --dryrun . s3://               # Dry run: current dir to bucket root
+
+Notes:
+  - Read operations use the readonly-user NooBaa account
+  - Write operations use the OBC owner account with full access
+  - All paths are relative to the current directory
 EOF
     exit 1
 }
@@ -122,7 +112,7 @@ EOF
 if [[ $# -lt 2 ]]; then usage; fi
 
 COMMAND=$1
-shift 
+shift
 
 case "$COMMAND" in
     read|write)

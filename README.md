@@ -1,44 +1,80 @@
-# Shared S3 Access Scripts
+# Shared S3 Access Scripts (NooBaa)
 
-Scripts for accessing Ceph/RGW S3 storage via Rook OBC (ObjectBucketClaim).
+Scripts for accessing NooBaa S3 storage via Rook OBC (ObjectBucketClaim) with proper read-only user support.
 
 ## Quick Start
 
 ```bash
 # Read from S3 (sync from bucket to local)
-./s3_wrapper.sh read --write s3://folder/ ./local-folder/
+./s3_wrapper.sh read s3://folder/ ./local-folder/
 
 # Write to S3 (sync from local to bucket)
 ./s3_wrapper.sh write ./local-folder/ s3://folder/
 
 # List bucket contents
-./s3_list.sh --write
+./s3_list.sh
 
 # Delete objects
 ./s3_delete.sh s3://folder/file.txt
 ```
 
-## ⚠️ Important: Read-Only User Limitation
+## Why NooBaa?
 
-**The readonly-user does NOT work with OBC-created buckets due to a Rook/Ceph architecture limitation.**
+NooBaa (Multicloud Object Gateway) provides proper support for read-only users through:
 
-### Why?
+- **Unified Authentication**: All NooBaa accounts exist in the same authentication realm
+- **Working Bucket Policies**: S3 bucket policies can grant permissions between NooBaa accounts
+- **Read-Only Accounts**: Create dedicated accounts with `--allow_bucket_create=false`
+- **S3 API Compatibility**: Full compatibility with AWS S3 API and tools
 
-- OBC (ObjectBucketClaim) creates users in a separate authentication realm
-- Users created with `radosgw-admin` (like readonly-user) cannot access OBC buckets
-- Ceph RGW returns `InvalidAccessKeyId` (403) when readonly-user tries to access the bucket
-- Bucket policies and ACLs cannot bridge this gap between the two user management systems
+This solves the authentication realm issue that exists with Ceph RGW OBC buckets.
 
-### Workaround
+## Setup Instructions
 
-Use the `--write` flag with read operations to force use of OBC credentials:
+### 1. Create Namespace and OBC
 
 ```bash
-# This uses WRITE credentials but only performs read operations
-./s3_wrapper.sh read --write s3://folder/ ./local-folder/
+# Create namespace
+oc apply -f init/namespace.yaml
+
+# Create ObjectBucketClaim using NooBaa storage class
+oc apply -f init/obc.yaml
 ```
 
-**Note:** The `--write` flag simply selects which credentials to use - it doesn't grant additional permissions to the operation itself. `s3 sync` from S3 to local is inherently a read-only operation regardless of credentials used.
+Wait for the OBC to be provisioned:
+```bash
+oc get obc -n shared-data
+```
+
+### 2. Create Read-Only NooBaa Account
+
+```bash
+cd init
+./10_create_readonly_account.sh
+```
+
+This creates a NooBaa account named `readonly-user` with `allow_bucket_create=false`.
+
+### 3. Apply Bucket Policy
+
+```bash
+cd init
+./20_apply_policy.sh
+```
+
+This applies an S3 bucket policy that grants the readonly-user read-only access to the bucket.
+
+### 4. Verify Setup
+
+```bash
+cd init
+./30_verify_setup.sh
+```
+
+This verifies:
+- NooBaa readonly account exists
+- Bucket policy is applied
+- Read-only user can list and sync from the bucket
 
 ## Scripts
 
@@ -48,15 +84,14 @@ Main script for syncing files between S3 and local filesystem.
 
 **Usage:**
 ```bash
-./s3_wrapper.sh [command] [--write] [--dryrun] [source] [destination]
+./s3_wrapper.sh [command] [--dryrun] [source] [destination]
 ```
 
 **Commands:**
-- `read` - Sync FROM S3 TO local (download)
-- `write` - Sync FROM local TO S3 (upload)
+- `read` - Sync FROM S3 TO local (download) - uses READ-ONLY credentials
+- `write` - Sync FROM local TO S3 (upload) - uses WRITE credentials
 
 **Flags:**
-- `--write` - Force use of WRITE credentials (required for read operations due to readonly-user limitation)
 - `--dryrun` - Preview changes without making them
 
 **Path Format:**
@@ -66,10 +101,10 @@ Main script for syncing files between S3 and local filesystem.
 **Examples:**
 ```bash
 # Download entire bucket
-./s3_wrapper.sh read --write s3:// ./backup/
+./s3_wrapper.sh read s3:// ./backup/
 
 # Download specific folder
-./s3_wrapper.sh read --write s3://shared-s3/ ./local-data/
+./s3_wrapper.sh read s3://shared-s3/ ./local-data/
 
 # Upload folder
 ./s3_wrapper.sh write ./data/ s3://backup/
@@ -84,13 +119,10 @@ List bucket contents recursively.
 
 **Usage:**
 ```bash
-./s3_list.sh [--write]
+./s3_list.sh
 ```
 
-**Flags:**
-- `--write` - Use WRITE credentials (recommended, READ credentials don't work with OBC buckets)
-
-**Default:** Uses READ credentials (which will fail with OBC buckets)
+Uses READ-ONLY credentials by default.
 
 ### s3_delete.sh
 
@@ -102,42 +134,41 @@ Delete objects from S3.
 ./s3_delete.sh s3://folder/  # Delete entire folder recursively
 ```
 
-## Setup (Initial)
-
-The `init/` directory contains setup scripts (for reference/debugging):
-
-1. `10_create_readonly_user.sh` - Creates readonly-user (⚠️ doesn't work with OBC buckets)
-2. `20_apply_policy.sh` - Applies bucket policy (⚠️ doesn't work due to user realm mismatch)
-3. `25_grant_acl_access.sh` - Attempts ACL grant (⚠️ doesn't work due to user realm mismatch)
-4. `30_verify_setup.sh` - Verifies setup and tests access
-5. `debug_user_tenant.sh` - Debug script showing user information and ACLs
+Uses WRITE credentials (required for delete operations).
 
 ## Technical Details
 
 ### Credential Sources
 
 **READ credentials** (readonly-user):
-- Created via: `radosgw-admin user create --uid=readonly-user`
-- Source: OpenShift pod execution on rook-ceph-operator
-- **Limitation: Cannot access OBC buckets** (returns InvalidAccessKeyId 403 error)
-- Why it fails: radosgw-admin users and OBC users exist in separate authentication realms
+- Created via: `noobaa account create readonly-user --allow_bucket_create=false`
+- Source: NooBaa secret in openshift-storage namespace
+- Format: `readonly-user` account in NooBaa
+- Permissions: Read-only access via bucket policy
 
 **WRITE credentials** (OBC user):
 - Created via: ObjectBucketClaim in `shared-data` namespace
 - Source: Kubernetes secrets (`shared-data-bucket`)
-- User ID format: `obc-shared-data-shared-data-bucket-<uuid>`
-- Works for all operations on the OBC bucket
+- User ID format: Generated by NooBaa OBC provisioner
+- Permissions: Full access to the bucket
 
-### Error: "argument of type 'NoneType' is not iterable"
+### NooBaa Account Format
 
-This cryptic error occurs when:
+NooBaa accounts use the format: `account-name@noobaa.io`
 
-1. readonly-user credentials are used with an OBC bucket
-2. Ceph RGW returns `InvalidAccessKeyId` (403) with an **empty error message**
-3. AWS CLI's error handler (`s3errormsg.py`) tries to parse the empty message
-4. Python crashes when checking `if substring in None`
+In bucket policies, the Principal ARN format is:
+```json
+"Principal": {
+  "AWS": ["arn:aws:iam::noobaa:user/readonly-user@noobaa.io"]
+}
+```
 
-The root cause is authentication failure, not a sync/permission issue.
+### S3 Endpoint
+
+NooBaa exposes S3 API through the `s3` route in `openshift-storage` namespace:
+```bash
+https://s3-openshift-storage.apps.your-cluster.domain
+```
 
 ### Directory Structure
 
@@ -148,71 +179,96 @@ The root cause is authentication failure, not a sync/permission issue.
 ├── s3_list.sh              # List objects
 ├── s3_delete.sh            # Delete objects
 ├── set_read_env.sh         # Load READ credentials
-├── set_write_env.sh        # Load WRITE credentials (and bucket name)
-├── test_readonly.sh        # Test readonly-user access (for debugging)
-├── init/                   # Setup scripts (mostly non-functional due to OBC limitation)
+├── set_write_env.sh        # Load WRITE credentials
+├── init/                   # Setup scripts
 │   ├── namespace.yaml
 │   ├── obc.yaml
 │   ├── policy.json
-│   ├── policy-extended.json
-│   ├── policy-test-open.json
-│   ├── 10_create_readonly_user.sh
+│   ├── 10_create_readonly_account.sh
 │   ├── 20_apply_policy.sh
-│   ├── 25_grant_acl_access.sh
-│   ├── 30_verify_setup.sh
-│   ├── check_user_caps.sh
-│   └── debug_user_tenant.sh
+│   └── 30_verify_setup.sh
 ```
 
 ## Troubleshooting
 
-### "fatal error: argument of type 'NoneType' is not iterable"
+### "Could not find NooBaa pod"
 
-**Cause:** Using readonly-user credentials with OBC buckets. Ceph returns InvalidAccessKeyId with empty message, AWS CLI crashes parsing it.
+**Cause:** NooBaa operator is not running or not installed.
 
-**Solution:** Use `--write` flag: `./s3_wrapper.sh read --write s3://folder/ ./local/`
+**Solution:** Check NooBaa installation:
+```bash
+oc get pods -n openshift-storage -l noobaa-mgmt=noobaa
+```
 
-### "InvalidAccessKeyId" (403)
+### "NooBaa account does not exist"
 
-**Cause:** The credentials don't have access to the bucket.
+**Cause:** The readonly-user account hasn't been created.
 
-**For readonly-user:** This is expected with OBC buckets - use `--write` flag instead.
-**For WRITE user:** Check that you're logged into OpenShift: `oc login`
+**Solution:** Run the account creation script:
+```bash
+cd init && ./10_create_readonly_account.sh
+```
 
-### Bucket policy not working
+### "No bucket policy found"
 
-**Cause:** Bucket policies cannot grant access across user management realms (OBC vs radosgw-admin).
+**Cause:** Bucket policy hasn't been applied.
 
-**Solution:** Use OBC credentials (WRITE credentials) for all access.
+**Solution:** Apply the bucket policy:
+```bash
+cd init && ./20_apply_policy.sh
+```
 
-### Why can't I create a truly read-only user?
+### "AccessDenied" with readonly-user
 
-OBC buckets are owned by OBC-managed users. The readonly-user created via `radosgw-admin` exists in a different authentication system. Ceph RGW does not provide a way to grant cross-realm access via policies or ACLs.
+**Cause:** Bucket policy may not be properly configured or applied.
 
-**Alternatives:**
-1. Use WRITE credentials for read operations (current workaround)
-2. Create a second OBC with limited permissions (if Rook supports read-only OBCs)
-3. Use application-level access control instead of S3-level
+**Solution:**
+1. Verify policy is applied: `cd init && ./30_verify_setup.sh`
+2. Re-apply policy: `cd init && ./20_apply_policy.sh`
+3. Check the account exists: `oc get secret readonly-user -n openshift-storage`
+
+### S3 endpoint not found
+
+**Cause:** NooBaa S3 route doesn't exist.
+
+**Solution:** Check the route exists:
+```bash
+oc get route s3 -n openshift-storage
+```
+
+If missing, check NooBaa installation.
 
 ## Environment Variables
 
 Scripts automatically load these from OpenShift:
 
-- `S3_ENDPOINT_URL` - Ceph RGW endpoint URL
-- `BUCKET_NAME` - OBC bucket name (format: `shared-data-<uuid>`)
-- `READ_ACCESS_KEY` / `READ_SECRET_KEY` - readonly-user credentials (⚠️ won't work)
-- `WRITE_ACCESS_KEY` / `WRITE_SECRET_KEY` - OBC user credentials (✅ use these)
+- `S3_ENDPOINT_URL` - NooBaa S3 endpoint URL (from `s3` route)
+- `BUCKET_NAME` - OBC bucket name (from ConfigMap)
+- `READ_ACCESS_KEY` / `READ_SECRET_KEY` - readonly-user credentials (from NooBaa secret)
+- `WRITE_ACCESS_KEY` / `WRITE_SECRET_KEY` - OBC user credentials (from OBC secret)
 
 ## Requirements
 
 - OpenShift CLI (`oc`) configured and logged in
 - Podman
 - `jq` for JSON parsing
-- Access to `openshift-storage` namespace (for readonly-user operations)
+- Access to `openshift-storage` namespace (for NooBaa operations)
 - Access to `shared-data` namespace (for OBC credentials)
-- Rook-Ceph OBC provisioned
+- NooBaa operator installed (part of OpenShift Data Foundation)
+
+## Advantages Over Ceph RGW
+
+| Feature | NooBaa | Ceph RGW OBC |
+|---------|--------|--------------|
+| Read-only users | ✅ Supported | ❌ Not supported |
+| Bucket policies | ✅ Work correctly | ❌ Cross-realm issues |
+| User management | Unified in NooBaa | Split (OBC vs radosgw-admin) |
+| S3 compatibility | Full | Full |
+| Multi-cloud | ✅ Built-in | Limited |
 
 ## References
 
-- [Ceph Bucket Policies Documentation](https://docs.ceph.com/en/latest/radosgw/bucketpolicy/)
+- [NooBaa Documentation](https://www.noobaa.io/)
 - [Rook OBC Documentation](https://rook.io/docs/rook/latest/Storage-Configuration/Object-Storage-RGW/object-bucket-claim/)
+- [Red Hat OpenShift Data Foundation - Bucket Policies](https://docs.redhat.com/en/documentation/red_hat_openshift_data_foundation/4.15/html/managing_hybrid_and_multicloud_resources/bucket-policies-in-the-multicloud-object-gateway)
+- [S3 Bucket Policy Examples for NooBaa](https://medium.com/@sandeepm257/s3-bucket-policy-in-noobaa-mcg-on-openshift-how-to-restrict-bucket-access-8323f6093e1d)

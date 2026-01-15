@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 
-# READ credentials for the readonly-user
+# READ credentials for the NooBaa readonly-user account
 
-export S3_ENDPOINT_URL="https://$(oc get route ocs-storagecluster-cephobjectstore-secure -n openshift-storage -o jsonpath='{.spec.host}')"
+READONLY_ACCOUNT="readonly-user"
 
-OPERATOR_POD=$(oc get pod -n openshift-storage -l app=rook-ceph-operator -o jsonpath='{.items[0].metadata.name}')
+# Get S3 endpoint from NooBaa service
+export S3_ENDPOINT_URL="https://$(oc get route s3 -n openshift-storage -o jsonpath='{.spec.host}')"
 
-DATA=$(oc exec -n openshift-storage "$OPERATOR_POD" -- \
-  radosgw-admin user info \
-  --uid="readonly-user" \
-  --conf=/var/lib/rook/openshift-storage/openshift-storage.config \
-  --keyring=/var/lib/rook/openshift-storage/client.admin.keyring)
+# Get readonly account credentials from NooBaa secret
+export READ_ACCESS_KEY=$(oc get secret "${READONLY_ACCOUNT}" -n openshift-storage -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' 2>/dev/null | base64 -d)
+export READ_SECRET_KEY=$(oc get secret "${READONLY_ACCOUNT}" -n openshift-storage -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' 2>/dev/null | base64 -d)
 
-export READ_ACCESS_KEY=$(jq -r '.keys[0].access_key' <<< "$DATA")
-export READ_SECRET_KEY=$(jq -r '.keys[0].secret_key' <<< "$DATA")
+if [[ -z "$READ_ACCESS_KEY" ]]; then
+    echo "ERROR: Could not retrieve READ credentials from NooBaa secret '${READONLY_ACCOUNT}'"
+    echo "       Make sure the readonly account exists: cd init && ./10_create_readonly_account.sh"
+    exit 1
+fi
 
 echo "READ credentials are now set."
 echo "Endpoint:   $S3_ENDPOINT_URL"

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 
-# WRITE credentials for the shared-data bucket
+# WRITE credentials for the shared-data bucket (NooBaa OBC)
 
 NAMESPACE="shared-data"
 
-export S3_ENDPOINT_URL="https://$(oc get route ocs-storagecluster-cephobjectstore-secure -n openshift-storage -o jsonpath='{.spec.host}')"
+# Get S3 endpoint from NooBaa service
+export S3_ENDPOINT_URL="https://$(oc get route s3 -n openshift-storage -o jsonpath='{.spec.host}')"
 
 export BUCKET_NAME=$(oc get cm shared-data-bucket -n "${NAMESPACE}" -o jsonpath='{.data.BUCKET_NAME}')
 
